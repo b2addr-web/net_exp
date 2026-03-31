@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
   const login = (username, password) => {
     const found = users.find(u => u.username === username && u.password === password);
     if (!found) return false;
-    const safe = { id: found.id, username: found.username, name: found.name, role: found.role };
+    const safe = { id: found.id, username: found.username, name: found.name, role: found.role, email: found.email || '' };
     setUser(safe);
     localStorage.setItem('ne_user', JSON.stringify(safe));
     return true;

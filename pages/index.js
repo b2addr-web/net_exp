@@ -1,108 +1,155 @@
 import { useState, useMemo, useEffect } from 'react';
+import Head from 'next/head';
 import { useAuth } from '../components/AuthContext';
 import LoginPage from '../components/LoginPage';
 import DeviceModal from '../components/DeviceModal';
 import UsersPanel from '../components/UsersPanel';
 import SettingsPanel from '../components/SettingsPanel';
+import AuditLogPanel from '../components/AuditLogPanel';
 import { T, INITIAL_DEVICES, TYPE_COLORS, LOC_COLORS } from '../lib/data';
 import { exportExcel, exportPDF, saveToSheets } from '../lib/export';
-import Head from 'next/head';
 
+// ── Small reusable badges ──────────────────────────────────────────────────────
 const StatusBadge = ({ status, t }) => {
-  const s = { new: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20', used: 'bg-blue-500/15 text-blue-400 border border-blue-500/20', damaged: 'bg-red-500/15 text-red-400 border border-red-500/20' };
-  return <span className={`text-xs px-2.5 py-1 rounded-lg font-medium ${s[status]}`}>{t.statuses[status]}</span>;
+  const s = {
+    new:     'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
+    used:    'bg-blue-500/15 text-blue-400 border border-blue-500/20',
+    damaged: 'bg-red-500/15 text-red-400 border border-red-500/20',
+  };
+  return <span className={`text-xs px-2.5 py-1 rounded-lg font-medium ${s[status] || 'bg-slate-700 text-slate-400 border border-slate-600'}`}>{t.statuses[status] || status}</span>;
 };
 
 const TypeBadge = ({ type, t }) => {
   const c = TYPE_COLORS[type] || TYPE_COLORS.accessory;
-  return <span className={`text-xs px-2 py-0.5 rounded-md ${c.bg} ${c.text}`}>{t.deviceTypes[type]}</span>;
+  return <span className={`text-xs px-2 py-0.5 rounded-md ${c.bg} ${c.text}`}>{t.deviceTypes[type] || type}</span>;
 };
 
-const StatCard = ({ label, value, sub, color, icon }) => (
+const StatCard = ({ label, value, color, icon }) => (
   <div className={`card-3d glass bg-slate-800/40 border rounded-xl p-4 ${color}`}>
-    <div className="flex items-start justify-between mb-3">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color.replace('border-', 'bg-').replace('/30', '/15')}`}>
-        {icon}
-      </div>
+    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${color.replace('border-', 'bg-').replace('/30', '/15').replace('/25', '/15')}`}>
+      {icon}
     </div>
     <p className="text-2xl font-bold text-white font-mono">{value}</p>
     <p className="text-xs text-slate-400 mt-0.5">{label}</p>
-    {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
   </div>
 );
 
+// ── Audit helper ───────────────────────────────────────────────────────────────
+function makeAuditEntry(action, device, oldDevice, user) {
+  const changes = [];
+  if (action === 'edited' && oldDevice) {
+    const fields = ['name','type','status','serial','location','online','employee','empId'];
+    fields.forEach(f => {
+      if (String(oldDevice[f]) !== String(device[f])) {
+        changes.push({ field: f, oldVal: String(oldDevice[f] ?? ''), newVal: String(device[f] ?? '') });
+      }
+    });
+  }
+  return {
+    time: new Date().toISOString(),
+    action,
+    deviceName: device.name,
+    deviceId: device.id,
+    oldVal: changes.map(c => `${c.field}: ${c.oldVal}`).join(' | ') || (action === 'deleted' ? device.name : ''),
+    newVal: changes.map(c => `${c.field}: ${c.newVal}`).join(' | ') || (action === 'added' ? device.name : ''),
+    userName: user?.name || user?.username || 'unknown',
+    userEmail: user?.email || '',
+  };
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { user, logout, ready } = useAuth();
-  const [lang, setLang]         = useState('ar');
-  const [dark, setDark]         = useState(true);
-  const [devices, setDevices]   = useState(INITIAL_DEVICES);
-  const [search, setSearch]     = useState('');
-  const [typeFilter, setTypeFilter]   = useState('all');
-  const [locFilter, setLocFilter]     = useState('all');
+  const [lang, setLang]           = useState('ar');
+  const [devices, setDevices]     = useState(INITIAL_DEVICES);
+  const [auditLog, setAuditLog]   = useState([]);
+  const [search, setSearch]       = useState('');
+  const [typeFilter, setTypeFilter]     = useState('all');
+  const [locFilter, setLocFilter]       = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [editDevice, setEditDevice]   = useState(null);
-  const [showModal, setShowModal]     = useState(false);
-  const [showUsers, setShowUsers]     = useState(false);
+  const [editDevice, setEditDevice]     = useState(null);
+  const [showModal, setShowModal]       = useState(false);
+  const [showUsers, setShowUsers]       = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [sheetsUrl, setSheetsUrl]     = useState('');
-  const [sheetsMsg, setSheetsMsg]     = useState('');
-  const [activePage, setActivePage]   = useState('dashboard');
+  const [showAudit, setShowAudit]       = useState(false);
+  const [sheetsUrl, setSheetsUrl]       = useState('');
+  const [sheetsMsg, setSheetsMsg]       = useState('');
+  const [activePage, setActivePage]     = useState('dashboard');
 
   const t = T[lang];
 
   useEffect(() => {
-    if (dark) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }, [dark]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('ne_devices');
-    const savedUrl = localStorage.getItem('ne_sheets_url');
-    if (saved) try { setDevices(JSON.parse(saved)); } catch {}
-    if (savedUrl) setSheetsUrl(savedUrl);
+    try {
+      const sd = localStorage.getItem('ne_devices');
+      const sa = localStorage.getItem('ne_audit');
+      const su = localStorage.getItem('ne_sheets_url');
+      if (sd) setDevices(JSON.parse(sd));
+      if (sa) setAuditLog(JSON.parse(sa));
+      if (su) setSheetsUrl(su);
+    } catch {}
   }, []);
 
-  const persist = (next) => {
-    setDevices(next);
-    localStorage.setItem('ne_devices', JSON.stringify(next));
+  const persist = (nextDevices, nextAudit) => {
+    setDevices(nextDevices);
+    if (nextAudit !== undefined) setAuditLog(nextAudit);
+    localStorage.setItem('ne_devices', JSON.stringify(nextDevices));
+    if (nextAudit !== undefined) localStorage.setItem('ne_audit', JSON.stringify(nextAudit));
+  };
+
+  const addAudit = (entry) => {
+    const next = [...auditLog, entry];
+    setAuditLog(next);
+    localStorage.setItem('ne_audit', JSON.stringify(next));
+    return next;
   };
 
   const saveDevice = (form) => {
-    const next = editDevice
-      ? devices.map(d => d.id === form.id ? form : d)
-      : [{ ...form, id: Date.now() }, ...devices];
-    persist(next);
+    if (editDevice) {
+      const nextDevices = devices.map(d => d.id === form.id ? { ...form } : d);
+      const entry = makeAuditEntry('edited', form, editDevice, user);
+      const nextAudit = [...auditLog, entry];
+      persist(nextDevices, nextAudit);
+    } else {
+      const newDevice = { ...form, id: Date.now() };
+      const nextDevices = [newDevice, ...devices];
+      const entry = makeAuditEntry('added', newDevice, null, user);
+      const nextAudit = [...auditLog, entry];
+      persist(nextDevices, nextAudit);
+    }
     setEditDevice(null);
   };
 
-  const deleteDevice = (id) => {
-    if (confirm(t.confirmDelete)) persist(devices.filter(d => d.id !== id));
+  const deleteDevice = (d) => {
+    if (!confirm(t.confirmDelete)) return;
+    const nextDevices = devices.filter(x => x.id !== d.id);
+    const entry = makeAuditEntry('deleted', d, null, user);
+    const nextAudit = [...auditLog, entry];
+    persist(nextDevices, nextAudit);
   };
 
-  const filtered = useMemo(() => {
-    return devices.filter(d => {
-      const q = search.toLowerCase();
-      const matchQ = !q || d.name.toLowerCase().includes(q) || d.serial.toLowerCase().includes(q);
-      const matchT = typeFilter === 'all' || d.type === typeFilter;
-      const matchL = locFilter === 'all' || d.location === locFilter;
-      const matchS = statusFilter === 'all' || d.status === statusFilter;
-      return matchQ && matchT && matchL && matchS;
-    });
-  }, [devices, search, typeFilter, locFilter, statusFilter]);
+  const filtered = useMemo(() => devices.filter(d => {
+    const q = search.toLowerCase();
+    const matchQ = !q || d.name.toLowerCase().includes(q) || d.serial.toLowerCase().includes(q) || (d.employee || '').toLowerCase().includes(q);
+    const matchT = typeFilter === 'all' || d.type === typeFilter;
+    const matchL = locFilter === 'all' || d.location === locFilter;
+    const matchS = statusFilter === 'all' || d.status === statusFilter;
+    return matchQ && matchT && matchL && matchS;
+  }), [devices, search, typeFilter, locFilter, statusFilter]);
 
   const stats = useMemo(() => ({
-    total: devices.length,
-    online: devices.filter(d => d.online).length,
-    offline: devices.filter(d => !d.online).length,
-    damaged: devices.filter(d => d.status === 'damaged').length,
+    total:     devices.length,
+    online:    devices.filter(d => d.online).length,
+    offline:   devices.filter(d => !d.online).length,
+    damaged:   devices.filter(d => d.status === 'damaged').length,
+    newCount:  devices.filter(d => d.status === 'new').length,
     warehouse: devices.filter(d => d.location === 'warehouse').length,
-    main: devices.filter(d => d.location === 'main').length,
-    factory: devices.filter(d => d.location === 'factory').length,
+    main:      devices.filter(d => d.location === 'main').length,
+    factory:   devices.filter(d => d.location === 'factory').length,
   }), [devices]);
 
   const handleSheets = async () => {
     try {
-      await saveToSheets(devices, sheetsUrl);
+      await saveToSheets(devices, auditLog, sheetsUrl);
       setSheetsMsg(t.sheetsSaved);
     } catch {
       setSheetsMsg(t.sheetsError);
@@ -111,7 +158,7 @@ export default function Dashboard() {
   };
 
   if (!ready) return null;
-  if (!user) return <LoginPage t={t} />;
+  if (!user)  return <LoginPage t={t} />;
 
   const isAdmin = user.role === 'admin';
 
@@ -124,23 +171,20 @@ export default function Dashboard() {
 
   return (
     <>
-      <Head>
-        <title>{t.appName}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </Head>
-      <div className="min-h-screen bg-[#060d1a] text-slate-100" dir={t.dir}>
-        {/* Background */}
+      <Head><title>{t.appName}</title><meta name="viewport" content="width=device-width,initial-scale=1"/></Head>
+      <div className="min-h-screen bg-[#060d1a] text-slate-100">
+
+        {/* Background grid */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute inset-0 opacity-[0.025]"
-            style={{ backgroundImage: 'linear-gradient(to right,#3b82f6 1px,transparent 1px),linear-gradient(to bottom,#3b82f6 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
+            style={{ backgroundImage:'linear-gradient(to right,#3b82f6 1px,transparent 1px),linear-gradient(to bottom,#3b82f6 1px,transparent 1px)', backgroundSize:'48px 48px' }} />
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full blur-3xl opacity-[0.06]"
-            style={{ background: 'radial-gradient(circle, #06b6d4, transparent 70%)' }} />
+            style={{ background:'radial-gradient(circle, #06b6d4, transparent 70%)' }} />
         </div>
 
-        {/* Navbar */}
-        <nav className="sticky top-0 z-40 glass bg-[#0a1220]/80 border-b border-slate-700/40">
+        {/* ── Navbar ── */}
+        <nav className="sticky top-0 z-40 glass bg-[#0a1220]/80 border-b border-slate-700/40" dir={t.dir}>
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
-            {/* Logo */}
             <div className="flex items-center gap-2.5 me-4">
               <div className="relative w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5 text-cyan-400">
@@ -152,7 +196,6 @@ export default function Dashboard() {
               <span className="font-bold text-white hidden sm:block">{t.appName}</span>
             </div>
 
-            {/* Nav links */}
             <div className="flex items-center gap-1">
               {navBtn('dashboard', t.dashboard,
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
@@ -162,14 +205,14 @@ export default function Dashboard() {
               )}
               {navBtn('inventory', t.inventory,
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                  <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/>
+                  <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+                  <rect x="9" y="3" width="6" height="4" rx="1"/>
                 </svg>
               )}
             </div>
 
             <div className="flex-1" />
 
-            {/* Controls */}
             <div className="flex items-center gap-2">
               {sheetsMsg && (
                 <span className={`text-xs px-3 py-1.5 rounded-lg hidden sm:block ${sheetsMsg.startsWith('✓') ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
@@ -177,13 +220,27 @@ export default function Dashboard() {
                 </span>
               )}
 
+              {/* Audit log button */}
+              <button onClick={() => setShowAudit(true)} title={t.auditLog}
+                className="relative p-2 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                {auditLog.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-amber-400 text-black text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {auditLog.length > 99 ? '99' : auditLog.length}
+                  </span>
+                )}
+              </button>
+
               {isAdmin && (
                 <>
                   <button onClick={() => setShowUsers(true)} title={t.users}
                     className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 transition-all">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                      <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+                      <circle cx="9" cy="7" r="4"/>
+                      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
                     </svg>
                   </button>
                   <button onClick={() => setShowSettings(true)} title={t.settings}
@@ -201,8 +258,8 @@ export default function Dashboard() {
                 {lang === 'ar' ? 'EN' : 'ع'}
               </button>
 
-              <div className="flex items-center gap-2 ps-2 border-s border-slate-700/40">
-                <div className="text-right hidden sm:block">
+              <div className={`flex items-center gap-2 ps-2 border-s border-slate-700/40`}>
+                <div className="text-end hidden sm:block">
                   <p className="text-xs text-slate-300 font-medium">{user.name || user.username}</p>
                   <p className="text-xs text-slate-500">{user.role === 'admin' ? t.admin : t.viewer}</p>
                 </div>
@@ -217,7 +274,8 @@ export default function Dashboard() {
           </div>
         </nav>
 
-        <main className="relative z-10 max-w-7xl mx-auto px-4 py-6">
+        <main className="relative z-10 max-w-7xl mx-auto px-4 py-6" dir={t.dir}>
+
           {/* ── DASHBOARD PAGE ── */}
           {activePage === 'dashboard' && (
             <div className="space-y-6 fade-up">
@@ -240,28 +298,32 @@ export default function Dashboard() {
                 <div className="flex-1 min-w-24 mx-2">
                   <div className="h-1.5 rounded-full bg-slate-700 overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full transition-all duration-700"
-                      style={{ width: `${stats.total ? (stats.online / stats.total) * 100 : 0}%` }} />
+                      style={{ width:`${stats.total ? (stats.online/stats.total)*100 : 0}%` }} />
                   </div>
                 </div>
                 <span className="text-emerald-400 font-mono font-bold text-sm">
-                  {stats.total ? Math.round((stats.online / stats.total) * 100) : 0}%
+                  {stats.total ? Math.round((stats.online/stats.total)*100) : 0}%
                 </span>
               </div>
 
               {/* Stat cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                 {[
-                  { label: t.total, value: stats.total, color: 'border-slate-700/50',
+                  { label: t.total,            value: stats.total,     color: 'border-slate-700/50',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-slate-400"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/></svg> },
-                  { label: t.online, value: stats.online, color: 'border-emerald-500/25',
+                  { label: t.online,           value: stats.online,    color: 'border-emerald-500/25',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-emerald-400"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> },
-                  { label: t.offline, value: stats.offline, color: 'border-slate-600/30',
+                  { label: t.offline,          value: stats.offline,   color: 'border-slate-600/30',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-slate-400"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> },
-                  { label: t.dir === 'rtl' ? 'تالف' : 'Damaged', value: stats.damaged, color: 'border-red-500/25',
+                  { label: t.statuses.damaged, value: stats.damaged,   color: 'border-red-500/25',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-red-400"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                  { label: t.statuses.new,     value: stats.newCount,  color: 'border-teal-500/25',
+                    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-teal-400"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> },
                   { label: t.locations.warehouse, value: stats.warehouse, color: 'border-amber-500/25',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-amber-400"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> },
-                  { label: t.locations.factory, value: stats.factory, color: 'border-violet-500/25',
+                  { label: t.locations.main,    value: stats.main,      color: 'border-cyan-500/25',
+                    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-cyan-400"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-4 0v2M12 12v5M9 14h6"/></svg> },
+                  { label: t.locations.factory, value: stats.factory,   color: 'border-violet-500/25',
                     icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5 text-violet-400"><path d="M2 20h20M4 20V8l6-4 6 4v12M10 20v-6h4v6"/></svg> },
                 ].map((s, i) => <StatCard key={i} {...s} />)}
               </div>
@@ -269,7 +331,7 @@ export default function Dashboard() {
               {/* Type breakdown */}
               <div className="glass bg-slate-800/30 border border-slate-700/40 rounded-xl p-5">
                 <h2 className="text-white font-semibold mb-4">{t.dir === 'rtl' ? 'توزيع الأجهزة حسب النوع' : 'Devices by Type'}</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                   {Object.entries(t.deviceTypes).map(([type, label]) => {
                     const count = devices.filter(d => d.type === type).length;
                     const c = TYPE_COLORS[type] || TYPE_COLORS.accessory;
@@ -283,6 +345,31 @@ export default function Dashboard() {
                   })}
                 </div>
               </div>
+
+              {/* Recent audit */}
+              {auditLog.length > 0 && (
+                <div className="glass bg-slate-800/30 border border-slate-700/40 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-white font-semibold">{t.dir === 'rtl' ? 'آخر العمليات' : 'Recent Activity'}</h2>
+                    <button onClick={() => setShowAudit(true)} className="text-xs text-amber-400 hover:underline">{t.dir === 'rtl' ? 'عرض الكل' : 'View All'}</button>
+                  </div>
+                  <div className="space-y-2">
+                    {[...auditLog].reverse().slice(0, 5).map((e, i) => (
+                      <div key={i} className="flex items-start gap-3 text-xs">
+                        <span className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-md border font-medium ${
+                          e.action === 'added' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          e.action === 'edited' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                          'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                          {t.audit[e.action]}
+                        </span>
+                        <span className="text-slate-300 flex-1">{e.deviceName}</span>
+                        <span className="text-slate-500 shrink-0">{e.userName}</span>
+                        <span className="text-slate-600 shrink-0 hidden sm:block">{new Date(e.time).toLocaleString(t.dir === 'rtl' ? 'ar-SA' : 'en-US')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -292,12 +379,10 @@ export default function Dashboard() {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h1 className="text-2xl font-bold text-white">{t.inventory}</h1>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Export buttons */}
                   <button onClick={() => exportExcel(filtered, t)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/25 transition-all">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
                     </svg>
                     {t.exportExcel}
                   </button>
@@ -331,7 +416,6 @@ export default function Dashboard() {
 
               {/* Filters */}
               <div className="glass bg-slate-800/30 border border-slate-700/40 rounded-xl p-4 space-y-3">
-                {/* Search */}
                 <div className="relative">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                     className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none ${t.dir === 'rtl' ? 'right-3' : 'left-3'}`}>
@@ -340,22 +424,15 @@ export default function Dashboard() {
                   <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t.search}
                     className={`w-full bg-slate-900/50 border border-slate-700/50 text-slate-100 rounded-xl py-2.5 text-sm outline-none focus:border-cyan-500/50 transition-colors placeholder-slate-600 ${t.dir === 'rtl' ? 'pr-9 pl-4' : 'pl-9 pr-4'}`} />
                 </div>
-
-                {/* Filter chips row */}
                 <div className="flex gap-2 flex-wrap">
-                  {/* Type */}
-                  <div className="flex gap-1.5 flex-wrap">
-                    {['all', ...Object.keys(t.deviceTypes)].map(f => (
-                      <button key={f} onClick={() => setTypeFilter(f)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${typeFilter === f ? 'bg-cyan-500 text-white' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-600/50'}`}>
-                        {f === 'all' ? t.all : t.deviceTypes[f]}
-                      </button>
-                    ))}
-                  </div>
+                  {['all', ...Object.keys(t.deviceTypes)].map(f => (
+                    <button key={f} onClick={() => setTypeFilter(f)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${typeFilter === f ? 'bg-cyan-500 text-white' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-600/50'}`}>
+                      {f === 'all' ? t.all : t.deviceTypes[f]}
+                    </button>
+                  ))}
                 </div>
-
                 <div className="flex gap-2 flex-wrap">
-                  {/* Location */}
                   {['all', ...Object.keys(t.locations)].map(f => (
                     <button key={f} onClick={() => setLocFilter(f)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${locFilter === f ? 'bg-violet-500 text-white' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-600/50'}`}>
@@ -363,7 +440,6 @@ export default function Dashboard() {
                     </button>
                   ))}
                   <span className="text-slate-600 px-1">|</span>
-                  {/* Status */}
                   {['all', ...Object.keys(t.statuses)].map(f => (
                     <button key={f} onClick={() => setStatusFilter(f)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${statusFilter === f ? 'bg-amber-500 text-white' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-600/50'}`}>
@@ -375,7 +451,7 @@ export default function Dashboard() {
 
               {/* Table */}
               <div className="glass bg-slate-800/30 border border-slate-700/40 rounded-xl overflow-hidden">
-                <div className={`flex items-center justify-between px-4 py-3 border-b border-slate-700/40`}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
                   <span className="text-sm font-medium text-slate-300">
                     {filtered.length} {t.dir === 'rtl' ? 'جهاز' : 'devices'}
                   </span>
@@ -384,19 +460,24 @@ export default function Dashboard() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-slate-800/50 text-slate-400 text-xs uppercase tracking-wider">
-                        <th className="px-4 py-3 font-medium text-start w-10">#</th>
+                        <th className="px-4 py-3 font-medium text-start w-8">#</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.name}</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.type}</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.status}</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.serial}</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.location}</th>
+                        <th className="px-4 py-3 font-medium text-start">{t.table.employee}</th>
+                        <th className="px-4 py-3 font-medium text-start">{t.table.empId}</th>
+                        <th className="px-4 py-3 font-medium text-start">{t.table.addedBy}</th>
+                        <th className="px-4 py-3 font-medium text-start">{t.table.addedAt}</th>
                         <th className="px-4 py-3 font-medium text-center">{t.table.connection}</th>
+                        <th className="px-4 py-3 font-medium text-center">{t.table.attachment}</th>
                         {isAdmin && <th className="px-4 py-3 font-medium text-center">{t.table.actions}</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.length === 0 ? (
-                        <tr><td colSpan={isAdmin ? 8 : 7} className="text-center py-16">
+                        <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-16">
                           <div className="flex flex-col items-center gap-3 text-slate-500">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-10 h-10 opacity-40">
                               <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
@@ -408,24 +489,30 @@ export default function Dashboard() {
                         const c = TYPE_COLORS[d.type] || TYPE_COLORS.accessory;
                         return (
                           <tr key={d.id} className="border-t border-slate-700/30 hover:bg-slate-700/15 transition-colors">
-                            <td className="px-4 py-3 text-slate-600 font-mono text-xs">{String(i + 1).padStart(2, '0')}</td>
+                            <td className="px-4 py-3 text-slate-600 font-mono text-xs">{String(i+1).padStart(2,'0')}</td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${c.bg} ${c.text} border ${c.border} shrink-0`}>
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5">
-                                    <rect x="2" y="3" width="20" height="5" rx="1"/><path d="M12 8v12M8 16h8"/>
+                                    <rect x="2" y="3" width="20" height="5" rx="1"/><path d="M12 8v8M8 16h8"/>
                                   </svg>
                                 </div>
-                                <span className="font-medium text-slate-200">{d.name}</span>
+                                <span className="font-medium text-slate-200 whitespace-nowrap">{d.name}</span>
                               </div>
                             </td>
                             <td className="px-4 py-3"><TypeBadge type={d.type} t={t} /></td>
                             <td className="px-4 py-3"><StatusBadge status={d.status} t={t} /></td>
-                            <td className="px-4 py-3 font-mono text-xs text-slate-400 tracking-wider">{d.serial}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400 tracking-wider whitespace-nowrap">{d.serial}</td>
                             <td className="px-4 py-3">
                               <span className={`text-xs px-2.5 py-1 rounded-lg border ${LOC_COLORS[d.location] || 'bg-slate-700 text-slate-400 border-slate-600'}`}>
-                                {t.locations[d.location]}
+                                {t.locations[d.location] || d.location}
                               </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{d.employee || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500 font-mono">{d.empId || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500">{d.addedBy || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                              {d.addedAt ? new Date(d.addedAt).toLocaleDateString(t.dir === 'rtl' ? 'ar-SA' : 'en-US') : '—'}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {d.online
@@ -437,17 +524,29 @@ export default function Dashboard() {
                                   </span>
                               }
                             </td>
+                            <td className="px-4 py-3 text-center">
+                              {d.attachmentUrl
+                                ? <a href={d.attachmentUrl} target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:underline">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                                    </svg>
+                                    {t.dir === 'rtl' ? 'ملف' : 'File'}
+                                  </a>
+                                : <span className="text-slate-600 text-xs">—</span>
+                              }
+                            </td>
                             {isAdmin && (
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-center gap-1">
                                   <button onClick={() => { setEditDevice(d); setShowModal(true); }}
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all" title={t.edit}>
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                                       <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                     </svg>
                                   </button>
-                                  <button onClick={() => deleteDevice(d.id)}
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all" title={t.delete}>
+                                  <button onClick={() => deleteDevice(d)}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
                                       <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
                                     </svg>
@@ -466,14 +565,21 @@ export default function Dashboard() {
           )}
         </main>
 
-        {/* Modals */}
+        {/* ── Modals ── */}
         {showModal && (
-          <DeviceModal t={t} device={editDevice} onSave={saveDevice} onClose={() => { setShowModal(false); setEditDevice(null); }} />
+          <DeviceModal
+            t={t}
+            device={editDevice}
+            onSave={saveDevice}
+            onClose={() => { setShowModal(false); setEditDevice(null); }}
+            sheetsUrl={sheetsUrl}
+          />
         )}
-        {showUsers && <UsersPanel t={t} onClose={() => setShowUsers(false)} />}
+        {showUsers    && <UsersPanel t={t} onClose={() => setShowUsers(false)} />}
+        {showAudit    && <AuditLogPanel t={t} log={auditLog} onClose={() => setShowAudit(false)} />}
         {showSettings && (
           <SettingsPanel t={t} sheetsUrl={sheetsUrl}
-            onSave={(url) => { setSheetsUrl(url); localStorage.setItem('ne_sheets_url', url); }}
+            onSave={url => { setSheetsUrl(url); localStorage.setItem('ne_sheets_url', url); }}
             onClose={() => setShowSettings(false)} />
         )}
       </div>
