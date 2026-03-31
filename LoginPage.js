@@ -96,9 +96,6 @@ export default function LoginPage({ t }) {
               }
             </button>
           </form>
-          <p className="text-center text-slate-600 text-xs mt-5">
-            admin / admin123 &nbsp;·&nbsp; viewer1 / view123
-          </p>
         </div>
       </div>
     </div>
