@@ -1,62 +1,70 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { INITIAL_USERS } from '../lib/data';
+import { loginUser, getUsers, addUser as dbAddUser, removeUser as dbRemoveUser, saveSession, loadSession, clearSession } from '../lib/db';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser]   = useState(null);
-  const [users, setUsers] = useState(INITIAL_USERS);
+  const [user,  setUser]  = useState(null);
+  const [users, setUsers] = useState([]);
   const [ready, setReady] = useState(false);
 
+  // تحميل الجلسة والمستخدمين عند البدء
   useEffect(() => {
-    try {
-      // إذا تغيرت بيانات المستخدمين الافتراضية، امسح المحفوظ القديم
-      const VERSION = 'v3'; // غيّر هذا الرقم عند أي تعديل على بيانات الدخول
-      const savedVersion = localStorage.getItem('ne_version');
-      if (savedVersion !== VERSION) {
-        localStorage.removeItem('ne_users');
-        localStorage.removeItem('ne_user');
-        localStorage.setItem('ne_version', VERSION);
+    const init = async () => {
+      try {
+        const session = loadSession();
+        if (session) setUser(session);
+        const list = await getUsers();
+        setUsers(list);
+      } catch (e) {
+        console.error('Auth init error:', e);
       }
-
-      const saved = localStorage.getItem('ne_user');
-      const savedUsers = localStorage.getItem('ne_users');
-      if (savedUsers) setUsers(JSON.parse(savedUsers));
-      if (saved) setUser(JSON.parse(saved));
-    } catch {
-      localStorage.clear();
-    }
-    setReady(true);
+      setReady(true);
+    };
+    init();
   }, []);
 
-  const login = (username, password) => {
-    const found = users.find(u => u.username === username && u.password === password);
-    if (!found) return false;
-    const safe = { id: found.id, username: found.username, name: found.name, role: found.role, email: found.email || '' };
-    setUser(safe);
-    localStorage.setItem('ne_user', JSON.stringify(safe));
-    return true;
+  const login = async (username, password) => {
+    try {
+      const found = await loginUser(username, password);
+      if (!found) return false;
+      const safe = {
+        id:       found.id,
+        username: found.username,
+        name:     found.name,
+        role:     found.role,
+        email:    found.email || '',
+      };
+      setUser(safe);
+      saveSession(safe);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('ne_user');
+    clearSession();
   };
 
-  const addUser = (u) => {
-    const next = [...users, { ...u, id: Date.now() }];
-    setUsers(next);
-    localStorage.setItem('ne_users', JSON.stringify(next));
+  const addUser = async (u) => {
+    const created = await dbAddUser(u);
+    setUsers(prev => [...prev, created]);
   };
 
-  const removeUser = (id) => {
-    const next = users.filter(u => u.id !== id);
-    setUsers(next);
-    localStorage.setItem('ne_users', JSON.stringify(next));
+  const removeUser = async (id) => {
+    await dbRemoveUser(id);
+    setUsers(prev => prev.filter(u => u.id !== id));
+  };
+
+  const refreshUsers = async () => {
+    const list = await getUsers();
+    setUsers(list);
   };
 
   return (
-    <AuthContext.Provider value={{ user, users, login, logout, addUser, removeUser, ready }}>
+    <AuthContext.Provider value={{ user, users, login, logout, addUser, removeUser, refreshUsers, ready }}>
       {children}
     </AuthContext.Provider>
   );

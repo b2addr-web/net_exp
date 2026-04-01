@@ -5,10 +5,31 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Syne:wght@500;600;700;800&display=swap');
 
 * { box-sizing: border-box; }
+body { font-family: 'IBM Plex Sans Arabic', 'Syne', sans-serif; margin: 0; }
+
+/* ── Light mode base ─────────────────────────────────── */
+:root {
+  --bg:       #f0f4ff;
+  --surface:  #ffffff;
+  --border:   #e2e8f0;
+  --text:     #1e293b;
+  --muted:    #64748b;
+  --accent:   #06b6d4;
+}
+
+/* ── Dark mode base ──────────────────────────────────── */
+.dark {
+  --bg:       #060d1a;
+  --surface:  #111827;
+  --border:   rgba(51,65,85,0.5);
+  --text:     #f1f5f9;
+  --muted:    #64748b;
+}
 
 body {
-  font-family: 'IBM Plex Sans Arabic', 'Syne', sans-serif;
-  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  transition: background-color 0.3s, color 0.3s;
 }
 
 .glass {
@@ -16,23 +37,12 @@ body {
   -webkit-backdrop-filter: blur(20px);
 }
 
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulse-ring {
-  0%,100% { transform: scale(1); opacity: 1; }
-  50%      { transform: scale(1.5); opacity: 0.4; }
-}
-@keyframes shimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position:  200% center; }
-}
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
+@keyframes fadeUp   { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes pulse-ring { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.5);opacity:.4} }
+@keyframes shimmer  { 0%{background-position:-200% center} 100%{background-position:200% center} }
+@keyframes spin-slow { to{transform:rotate(360deg)} }
 
-.fade-up  { animation: fadeUp 0.35s ease both; }
+.fade-up    { animation: fadeUp 0.35s ease both; }
 .pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
 .spin-slow  { animation: spin-slow 8s linear infinite; }
 
@@ -47,13 +57,9 @@ body {
 .card-3d {
   transition: transform 0.25s cubic-bezier(.4,0,.2,1), box-shadow 0.25s;
 }
-.card-3d:hover {
-  transform: translateY(-4px) scale(1.01);
-}
+.card-3d:hover { transform: translateY(-4px) scale(1.01); }
 
-input, select {
-  font-family: inherit;
-}
+input, select, textarea { font-family: inherit; }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

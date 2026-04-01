@@ -1,202 +1,87 @@
-# خبير الشبكة | Net Expert
-## نظام إدارة الجرد التقني الاحترافي
+# ⚡ خبير الشبكة | Net Expert v2.0
+## نظام إدارة الجرد التقني — مع Supabase السحابي
+
+---
+
+## 🗄️ إعداد Supabase (قاعدة البيانات السحابية)
+
+### الخطوة 1: إنشاء مشروع
+1. اذهب إلى https://supabase.com وسجّل دخول (مجاني)
+2. اضغط **New Project**
+3. اختر اسم المشروع: `net-expert`
+4. اختر كلمة مرور قوية للـ database
+5. اختر المنطقة: **Middle East (Bahrain)** للأسرع
+6. انتظر دقيقة حتى يكتمل الإنشاء
+
+### الخطوة 2: إنشاء الجداول
+1. من القائمة الجانبية اضغط **SQL Editor**
+2. اضغط **New Query**
+3. افتح ملف `supabase-schema.sql` من المشروع
+4. انسخ محتواه كاملاً والصقه في المحرر
+5. اضغط **Run** ✅
+
+### الخطوة 3: نسخ مفاتيح الـ API
+1. اذهب إلى **Project Settings** → **API**
+2. انسخ:
+   - **Project URL** → يبدأ بـ `https://xxxxx.supabase.co`
+   - **anon public key** → سلسلة طويلة من الحروف
+
+### الخطوة 4: إضافة المفاتيح للمشروع
+انسخ ملف `.env.local.example` وأعد تسميته إلى `.env.local`:
+```bash
+cp .env.local.example .env.local
+```
+ثم افتحه وضع المفاتيح:
+```
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY_HERE
+```
 
 ---
 
 ## 🚀 النشر على Vercel
 
+### تشغيل محلي أولاً:
 ```bash
-cd net-expert
 npm install
-npm run dev          # تجربة محلية على http://localhost:3000
+npm run dev
+# افتح http://localhost:3000
 ```
 
-للنشر:
+### النشر على Vercel:
 1. ارفع المشروع على GitHub
-2. اذهب إلى vercel.com → New Project → Import من GitHub
-3. Deploy ✅
+2. اذهب إلى https://vercel.com → New Project → Import
+3. **مهم:** أضف Environment Variables في Vercel:
+   - اذهب إلى Settings → Environment Variables
+   - أضف `NEXT_PUBLIC_SUPABASE_URL`
+   - أضف `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. اضغط **Deploy** ✅
 
 ---
 
-## 🔐 بيانات الدخول الافتراضية
+## 🌐 ربط دومين خاص
+
+1. اشتري دومين من namecheap.com أو godaddy.com
+2. في Vercel: Settings → Domains → Add Domain
+3. اتبع تعليمات تغيير DNS
+4. خلال 24 ساعة يصبح شغّالاً
+
+---
+
+## 🔐 بيانات الدخول
 
 | المستخدم | كلمة المرور | الصلاحية |
 |----------|------------|---------|
-| admin    | admin123   | مسؤول كامل |
-| viewer1  | view123    | مشاهدة فقط |
+| Badr | BADR050982538 | مسؤول كامل |
 
 ---
 
-## 📊 كود Google Apps Script الكامل
+## 💡 وضع Offline
 
-افتح Google Sheets → Extensions → Apps Script → الصق هذا الكود كاملاً:
-
-```javascript
-// ═══════════════════════════════════════════════════════
-// Net Expert — Google Apps Script
-// يدعم: حفظ الجرد، سجل العمليات، رفع الملفات على Drive
-// ═══════════════════════════════════════════════════════
-
-const INVENTORY_SHEET = 'الجرد';
-const AUDIT_SHEET     = 'سجل العمليات';
-const DRIVE_FOLDER    = 'Net Expert Attachments';
-
-function doPost(e) {
-  try {
-    const data = JSON.parse(e.postData.contents);
-
-    // ── رفع ملف إلى Google Drive ──────────────────────────
-    if (data.action === 'uploadFile') {
-      return uploadFileToDrive(data);
-    }
-
-    // ── حفظ الجرد + سجل العمليات ──────────────────────────
-    if (data.action === 'syncInventory') {
-      syncInventory(data.devices);
-      if (data.auditLog && data.auditLog.length > 0) {
-        syncAuditLog(data.auditLog);
-      }
-      return ok({ synced: data.devices.length });
-    }
-
-    return ok({ message: 'unknown action' });
-  } catch(err) {
-    return err_response(err.toString());
-  }
-}
-
-function doGet(e) {
-  return ContentService.createTextOutput('Net Expert API ✓ Running');
-}
-
-// ── حفظ الجرد ─────────────────────────────────────────────
-function syncInventory(devices) {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet   = ss.getSheetByName(INVENTORY_SHEET);
-  if (!sheet) sheet = ss.insertSheet(INVENTORY_SHEET);
-
-  sheet.clearContents();
-
-  const headers = [
-    '#', 'اسم الجهاز', 'النوع', 'الحالة', 'الرقم التسلسلي',
-    'الموقع', 'الاتصال', 'الموظف المسؤول', 'الرقم الوظيفي',
-    'أضيف بواسطة', 'إيميل المضيف', 'تاريخ الإضافة',
-    'آخر تعديل بواسطة', 'وقت آخر تعديل', 'رابط المرفق'
-  ];
-  sheet.appendRow(headers);
-
-  // تنسيق الهيدر
-  const hRange = sheet.getRange(1, 1, 1, headers.length);
-  hRange.setBackground('#0891b2').setFontColor('#ffffff').setFontWeight('bold');
-
-  const typeAr = { router:'راوتر', switch:'سويتش', ap:'نقطة وصول', firewall:'جدار حماية', server:'خادم', nas:'تخزين NAS', ups:'UPS', rack:'كبينة', phone:'هاتف IP', computer:'كمبيوتر', accessory:'ملحق' };
-  const statusAr = { new:'جديد', used:'مستخدم', damaged:'تالف' };
-  const locAr = { warehouse:'المستودع', main:'المبنى الرئيسي', factory:'المصنع' };
-
-  devices.forEach(function(d, i) {
-    sheet.appendRow([
-      i + 1,
-      d.name || '',
-      typeAr[d.type] || d.type || '',
-      statusAr[d.status] || d.status || '',
-      d.serial || '',
-      locAr[d.location] || d.location || '',
-      d.online ? 'متصل ✓' : 'غير متصل ✗',
-      d.employee || '',
-      d.empId || '',
-      d.addedBy || '',
-      d.updatedByEmail || '',
-      d.addedAt ? new Date(d.addedAt).toLocaleString('ar-SA') : '',
-      d.updatedBy || '',
-      d.updatedAt ? new Date(d.updatedAt).toLocaleString('ar-SA') : '',
-      d.attachmentUrl || ''
-    ]);
-  });
-
-  sheet.autoResizeColumns(1, headers.length);
-  sheet.setFrozenRows(1);
-
-  // تلوين صفوف التالف
-  for (let r = 2; r <= devices.length + 1; r++) {
-    const statusCell = sheet.getRange(r, 4).getValue();
-    if (statusCell === 'تالف') {
-      sheet.getRange(r, 1, 1, headers.length).setBackground('#fef2f2');
-    } else if (statusCell === 'جديد') {
-      sheet.getRange(r, 1, 1, headers.length).setBackground('#f0fdf4');
-    }
-  }
-}
-
-// ── حفظ سجل العمليات ──────────────────────────────────────
-function syncAuditLog(auditLog) {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet   = ss.getSheetByName(AUDIT_SHEET);
-  if (!sheet) {
-    sheet = ss.insertSheet(AUDIT_SHEET);
-    // إخفاء الشيت تلقائياً
-    sheet.hideSheet();
-  }
-
-  // إذا كان الشيت فارغاً أضف الهيدر
-  if (sheet.getLastRow() === 0) {
-    const headers = ['الوقت', 'العملية', 'اسم الجهاز', 'القيمة القديمة', 'القيمة الجديدة', 'اسم المستخدم', 'إيميل المستخدم'];
-    sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setBackground('#7c3aed').setFontColor('#fff').setFontWeight('bold');
-  }
-
-  // أضف فقط السجلات الجديدة (تجنب التكرار)
-  const existing = sheet.getLastRow();
-  auditLog.forEach(function(e) {
-    sheet.appendRow([
-      e.time ? new Date(e.time).toLocaleString('ar-SA') : '',
-      e.action === 'added' ? 'إضافة' : e.action === 'edited' ? 'تعديل' : 'حذف',
-      e.deviceName || '',
-      e.oldVal || '',
-      e.newVal || '',
-      e.userName || '',
-      e.userEmail || ''
-    ]);
-  });
-
-  sheet.autoResizeColumns(1, 7);
-}
-
-// ── رفع ملف إلى Google Drive ──────────────────────────────
-function uploadFileToDrive(data) {
-  const folders = DriveApp.getFoldersByName(DRIVE_FOLDER);
-  const folder  = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER);
-
-  const bytes   = Utilities.base64Decode(data.data);
-  const blob    = Utilities.newBlob(bytes, data.mimeType, data.fileName);
-  const file    = folder.createFile(blob);
-
-  // اجعل الملف قابلاً للمشاركة بالرابط
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  const url = 'https://drive.google.com/file/d/' + file.getId() + '/view';
-  return ok({ url: url, name: data.fileName });
-}
-
-// ── Helpers ────────────────────────────────────────────────
-function ok(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(Object.assign({ success: true }, data)))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function err_response(msg) {
-  return ContentService
-    .createTextOutput(JSON.stringify({ success: false, error: msg }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-```
-
-### خطوات النشر:
-1. افتح Google Sheets → Extensions → Apps Script
-2. الصق الكود أعلاه
-3. اضغط Deploy → New Deployment → Web App
-4. Execute as: **Me** | Who has access: **Anyone**
-5. انسخ الرابط وضعه في إعدادات النظام ⚙️
+المشروع يعمل حتى **بدون Supabase** — يحفظ في localStorage تلقائياً.
+الأيقونة في الشريط العلوي تظهر:
+- 🟢 **سحابي** — متصل بـ Supabase، البيانات محفوظة للأبد
+- 🟡 **محلي** — يعمل بدون إنترنت، البيانات في المتصفح فقط
 
 ---
 
@@ -204,16 +89,19 @@ function err_response(msg) {
 
 | الميزة | التفاصيل |
 |--------|---------|
-| 🔐 تسجيل دخول | Admin / Viewer مع حفظ الجلسة |
-| 👥 إدارة المستخدمين | إضافة / حذف مع تحديد الصلاحية |
-| 📦 11 نوع جهاز | مع حقول قابلة للكتابة الحرة |
-| 🏢 3 مواقع | مستودع / مبنى رئيسي / مصنع |
-| 👤 بيانات الموظف | اسم الموظف + الرقم الوظيفي |
-| ⚡ تسجيل تلقائي | المستخدم + الإيميل + التاريخ والوقت |
-| 📋 سجل العمليات | كل إضافة/تعديل/حذف مع من ومتى |
-| 📎 مرفقات | رفع صور/PDF إلى Google Drive |
-| 🔍 بحث وفلترة | بالنوع والموقع والحالة والموظف |
-| 📊 تصدير CSV | يفتح في Excel مع دعم العربية |
-| 📄 تصدير PDF | طباعة احترافية بخط عربي |
-| ☁️ Google Sheets | حفظ الجرد + سجل العمليات |
-| 🌐 ثنائي اللغة | عربي RTL / English LTR |
+| 🗄️ Supabase | قاعدة بيانات سحابية حقيقية |
+| 🔄 Realtime | تحديث تلقائي فوري بين الأجهزة |
+| 📴 Offline | يعمل بدون إنترنت مع sync تلقائي |
+| 🔐 تسجيل دخول | Admin / Viewer |
+| 👥 إدارة مستخدمين | إضافة / حذف |
+| 📦 11 نوع جهاز | مع ComboBox للإضافة الحرة |
+| 🏢 3 مواقع | مستودع / مبنى / مصنع |
+| 👤 بيانات موظف | اسم + رقم وظيفي |
+| 📝 ملاحظات | حقل نصي لكل جهاز |
+| 📎 مرفقات | رفع ملفات مع تسمية مخصصة |
+| ⚡ تسجيل تلقائي | المستخدم + وقت كل عملية |
+| 📋 سجل العمليات | Audit Log كامل |
+| 📊 تصدير CSV | Excel بالعربية |
+| 📄 تصدير PDF | طباعة احترافية |
+| ☁️ Google Sheets | حفظ اختياري |
+| 🌐 ثنائي اللغة | عربي / English |
