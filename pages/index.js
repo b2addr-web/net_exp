@@ -471,13 +471,14 @@ export default function Dashboard() {
                         <th className="px-4 py-3 font-medium text-start">{t.table.addedBy}</th>
                         <th className="px-4 py-3 font-medium text-start">{t.table.addedAt}</th>
                         <th className="px-4 py-3 font-medium text-center">{t.table.connection}</th>
+                        <th className="px-4 py-3 font-medium text-start">{t.table.notes}</th>
                         <th className="px-4 py-3 font-medium text-center">{t.table.attachment}</th>
                         {isAdmin && <th className="px-4 py-3 font-medium text-center">{t.table.actions}</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.length === 0 ? (
-                        <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-16">
+                        <tr><td colSpan={isAdmin ? 14 : 13} className="text-center py-16">
                           <div className="flex flex-col items-center gap-3 text-slate-500">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-10 h-10 opacity-40">
                               <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
@@ -524,14 +525,20 @@ export default function Dashboard() {
                                   </span>
                               }
                             </td>
+                            <td className="px-4 py-3 text-xs text-slate-400 max-w-[160px]">
+                              {d.notes
+                                ? <span className="block truncate" title={d.notes}>{d.notes}</span>
+                                : <span className="text-slate-600">—</span>
+                              }
+                            </td>
                             <td className="px-4 py-3 text-center">
                               {d.attachmentUrl
                                 ? <a href={d.attachmentUrl} target="_blank" rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:underline">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                                    className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:underline max-w-[100px]">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 shrink-0">
                                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                                     </svg>
-                                    {t.dir === 'rtl' ? 'ملف' : 'File'}
+                                    <span className="truncate">{d.attachmentLabel || d.attachmentName || (t.dir === 'rtl' ? 'ملف' : 'File')}</span>
                                   </a>
                                 : <span className="text-slate-600 text-xs">—</span>
                               }
