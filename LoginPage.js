@@ -96,6 +96,7 @@ export default function LoginPage({ t }) {
               }
             </button>
           </form>
+
         </div>
       </div>
     </div>
