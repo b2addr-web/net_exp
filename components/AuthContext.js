@@ -10,11 +10,22 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     try {
+      // إذا تغيرت بيانات المستخدمين الافتراضية، امسح المحفوظ القديم
+      const VERSION = 'v3'; // غيّر هذا الرقم عند أي تعديل على بيانات الدخول
+      const savedVersion = localStorage.getItem('ne_version');
+      if (savedVersion !== VERSION) {
+        localStorage.removeItem('ne_users');
+        localStorage.removeItem('ne_user');
+        localStorage.setItem('ne_version', VERSION);
+      }
+
       const saved = localStorage.getItem('ne_user');
       const savedUsers = localStorage.getItem('ne_users');
       if (savedUsers) setUsers(JSON.parse(savedUsers));
       if (saved) setUser(JSON.parse(saved));
-    } catch {}
+    } catch {
+      localStorage.clear();
+    }
     setReady(true);
   }, []);
 
