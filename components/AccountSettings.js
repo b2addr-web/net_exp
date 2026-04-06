@@ -3,7 +3,7 @@ import { useAuth } from './AuthContext';
 import { addAuditEntry } from '../lib/db';
 
 export default function AccountSettings({ t, onClose }) {
-  const { user, users } = useAuth();
+  const { user, users, updatePassword } = useAuth();
   const [oldPw,  setOldPw]  = useState('');
   const [newPw,  setNewPw]  = useState('');
   const [confPw, setConfPw] = useState('');
@@ -26,7 +26,7 @@ export default function AccountSettings({ t, onClose }) {
 
     setLoading(true);
 
-    // Verify old password
+    // التحقق من كلمة المرور القديمة
     const currentUser = users.find(u => u.id === user.id);
     if (!currentUser || currentUser.password !== oldPw) {
       setMsg(t.passwordError);
@@ -35,20 +35,15 @@ export default function AccountSettings({ t, onClose }) {
     }
 
     try {
-      // Update password in db
-      const { updateUser } = await import('../lib/db');
-      await updateUser(user.id, { password: newPw });
+      // تحديث كلمة المرور
+      updatePassword(user.id, newPw);
 
-      // Audit log
+      // سجل العمليات
       await addAuditEntry({
-        time:       new Date().toISOString(),
-        action:     'passwordChanged',
-        deviceName: user.username,
-        deviceId:   String(user.id),
-        oldVal:     '••••••••',
-        newVal:     '••••••••',
-        userName:   user.name || user.username,
-        userEmail:  user.email || '',
+        time: new Date().toISOString(), action: 'passwordChanged',
+        deviceName: user.username, deviceId: String(user.id),
+        oldVal: '••••••••', newVal: '••••••••',
+        userName: user.name || user.username, userEmail: user.email || '',
       });
 
       setMsg(t.passwordChanged);
